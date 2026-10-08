@@ -9,7 +9,7 @@ namespace cylinder {
 
 struct Vertex {
 	float position[3];
-	float normal[3];
+	float color[3];
 };
 
 struct Mesh {
@@ -18,50 +18,55 @@ struct Mesh {
 };
 
 // Цилиндр с осью вдоль Y, центр в начале координат.
-// В каждом основании `segments` вершин по окружности (+ центр для веера).
-// Вершины основания и боковой поверхности дублируются: у них разные нормали.
+//
+// Вершины (всего 2 * segments + 2):
+//   [0, n)      - верхнее основание (окружность)
+//   [n, 2n)     - нижнее основание (окружность)
+//   2n          - центр верхнего основания
+//   2n + 1      - центр нижнего основания
+// Боковая стенка и основания используют одни и те же вершины, потому что
+// цвет зависит только от положения вершины, а нормали нам не нужны.
+//
+// Цвет вершины - её локальная позиция, отображённая из [-размер, +размер]
+// в [0, 1]: (x, y, z) -> (R, G, B).
 inline Mesh make(uint32_t segments, float radius, float height) {
 	Mesh mesh;
 
 	const float half = height * 0.5f;
 	const float step = 2.0f * std::numbers::pi_v<float> / float(segments);
 
-	// --- Боковая поверхность: верхнее кольцо [0, n), нижнее кольцо [n, 2n) ---
-	for (uint32_t i = 0; i < segments; ++i) {
-		const float c = std::cos(step * float(i)), s = std::sin(step * float(i));
-		mesh.vertices.push_back(Vertex{{radius * c, +half, radius * s}, {c, 0.0f, s}});
+	auto makeVertex = [&](float x, float y, float z) {
+		return Vertex{
+			{x, y, z},
+			{x / radius * 0.5f + 0.5f, y / half * 0.5f + 0.5f, z / radius * 0.5f + 0.5f},
+		};
+	};
+
+	for (int ring = 0; ring < 2; ++ring) {
+		const float y = (ring == 0) ? +half : -half;
+		for (uint32_t i = 0; i < segments; ++i) {
+			const float a = step * float(i);
+			mesh.vertices.push_back(makeVertex(radius * std::cos(a), y, radius * std::sin(a)));
+		}
 	}
-	for (uint32_t i = 0; i < segments; ++i) {
-		const float c = std::cos(step * float(i)), s = std::sin(step * float(i));
-		mesh.vertices.push_back(Vertex{{radius * c, -half, radius * s}, {c, 0.0f, s}});
-	}
+
+	const uint32_t top_center = 2 * segments;
+	const uint32_t bottom_center = 2 * segments + 1;
+	mesh.vertices.push_back(makeVertex(0.0f, +half, 0.0f));
+	mesh.vertices.push_back(makeVertex(0.0f, -half, 0.0f));
+
 	for (uint32_t i = 0; i < segments; ++i) {
 		const uint32_t j = (i + 1) % segments;
 		const uint32_t top_i = i, top_j = j;
 		const uint32_t bottom_i = segments + i, bottom_j = segments + j;
 
+		// Боковая стенка: два треугольника на сегмент.
 		mesh.indices.insert(mesh.indices.end(), {top_i, bottom_i, top_j});
 		mesh.indices.insert(mesh.indices.end(), {top_j, bottom_i, bottom_j});
-	}
 
-	// --- Основания: центр + кольцо, треугольники веером ---
-	for (int cap = 0; cap < 2; ++cap) {
-		const float y = (cap == 0) ? +half : -half;
-		const float ny = (cap == 0) ? +1.0f : -1.0f;
-
-		const uint32_t center = uint32_t(mesh.vertices.size());
-		mesh.vertices.push_back(Vertex{{0.0f, y, 0.0f}, {0.0f, ny, 0.0f}});
-
-		const uint32_t ring = uint32_t(mesh.vertices.size());
-		for (uint32_t i = 0; i < segments; ++i) {
-			const float c = std::cos(step * float(i)), s = std::sin(step * float(i));
-			mesh.vertices.push_back(Vertex{{radius * c, y, radius * s}, {0.0f, ny, 0.0f}});
-		}
-
-		for (uint32_t i = 0; i < segments; ++i) {
-			const uint32_t j = (i + 1) % segments;
-			mesh.indices.insert(mesh.indices.end(), {center, ring + j, ring + i});
-		}
+		// Основания: треугольник от центра к двум соседним вершинам окружности.
+		mesh.indices.insert(mesh.indices.end(), {top_center, top_j, top_i});
+		mesh.indices.insert(mesh.indices.end(), {bottom_center, bottom_i, bottom_j});
 	}
 
 	return mesh;

@@ -67,6 +67,14 @@ inline Mat4 rotateY(float angle) {
 	return r;
 }
 
+inline Mat4 rotateZ(float angle) {
+	const float c = std::cos(angle), s = std::sin(angle);
+	Mat4 r = identity();
+	r.at(0, 0) = c;  r.at(0, 1) = -s;
+	r.at(1, 0) = s;  r.at(1, 1) = c;
+	return r;
+}
+
 // Перспективная проекция под Vulkan:
 //  - камера смотрит вдоль -Z (правосторонняя система),
 //  - глубина после деления на w попадает в [0, 1] (в OpenGL было бы [-1, 1]),
@@ -79,6 +87,22 @@ inline Mat4 perspective(float fov_y, float aspect, float z_near, float z_far) {
 	r.at(2, 2) = z_far / (z_near - z_far);
 	r.at(2, 3) = (z_near * z_far) / (z_near - z_far);
 	r.at(3, 2) = -1.0f;
+	return r;
+}
+
+// Ортографическая проекция под Vulkan (те же соглашения, что у perspective):
+// камера смотрит вдоль -Z, глубина в [0, 1], ось Y вниз.
+// Параллелепипед видимости: x in [left, right], y in [bottom, top],
+// расстояние вдоль взгляда in [z_near, z_far].
+inline Mat4 orthographic(float left, float right, float bottom, float top,
+                         float z_near, float z_far) {
+	Mat4 r = identity();
+	r.at(0, 0) = 2.0f / (right - left);
+	r.at(0, 3) = -(right + left) / (right - left);
+	r.at(1, 1) = -2.0f / (top - bottom);
+	r.at(1, 3) = (top + bottom) / (top - bottom);
+	r.at(2, 2) = 1.0f / (z_near - z_far);
+	r.at(2, 3) = z_near / (z_near - z_far);
 	return r;
 }
 
