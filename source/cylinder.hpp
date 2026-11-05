@@ -9,7 +9,7 @@ namespace cylinder {
 
 struct Vertex {
 	float position[3];
-	float color[3];
+	float normal[3];
 };
 
 struct Mesh {
@@ -18,57 +18,83 @@ struct Mesh {
 };
 
 // Цилиндр с осью вдоль Y, центр в начале координат.
-//
-// Вершины (всего 2 * segments + 2):
-//   [0, n)      - верхнее основание (окружность)
-//   [n, 2n)     - нижнее основание (окружность)
-//   2n          - центр верхнего основания
-//   2n + 1      - центр нижнего основания
-// Боковая стенка и основания используют одни и те же вершины, потому что
-// цвет зависит только от положения вершины, а нормали нам не нужны.
-//
-// Цвет вершины - её локальная позиция, отображённая из [-размер, +размер]
-// в [0, 1]: (x, y, z) -> (R, G, B).
+// Нормали генерируются процедурно: у боковой стенки - радиальные (плавные),
+// у оснований - ровно вверх/вниз. Поэтому вершины стенки и оснований раздельные.
 inline Mesh make(uint32_t segments, float radius, float height) {
 	Mesh mesh;
 
 	const float half = height * 0.5f;
 	const float step = 2.0f * std::numbers::pi_v<float> / float(segments);
 
-	auto makeVertex = [&](float x, float y, float z) {
-		return Vertex{
-			{x, y, z},
-			{x / radius * 0.5f + 0.5f, y / half * 0.5f + 0.5f, z / radius * 0.5f + 0.5f},
-		};
-	};
+	// Боковая стенка: (segments + 1) пар вершин (шов дублируется).
+	for (uint32_t i = 0; i <= segments; ++i) {
+		const float c = std::cos(step * float(i)), s = std::sin(step * float(i));
+		mesh.vertices.push_back({{radius * c, +half, radius * s}, {c, 0.0f, s}});
+		mesh.vertices.push_back({{radius * c, -half, radius * s}, {c, 0.0f, s}});
+	}
+	for (uint32_t i = 0; i < segments; ++i) {
+		const uint32_t t0 = 2 * i, b0 = 2 * i + 1, t1 = 2 * i + 2, b1 = 2 * i + 3;
+		mesh.indices.insert(mesh.indices.end(), {t0, b0, t1, t1, b0, b1});
+	}
 
-	for (int ring = 0; ring < 2; ++ring) {
-		const float y = (ring == 0) ? +half : -half;
+	// Основания: центр + кольцо с нормалью вдоль оси.
+	for (int cap = 0; cap < 2; ++cap) {
+		const float y = cap == 0 ? +half : -half;
+		const float ny = cap == 0 ? 1.0f : -1.0f;
+		const uint32_t center = uint32_t(mesh.vertices.size());
+		mesh.vertices.push_back({{0.0f, y, 0.0f}, {0.0f, ny, 0.0f}});
 		for (uint32_t i = 0; i < segments; ++i) {
 			const float a = step * float(i);
-			mesh.vertices.push_back(makeVertex(radius * std::cos(a), y, radius * std::sin(a)));
+			mesh.vertices.push_back({{radius * std::cos(a), y, radius * std::sin(a)}, {0.0f, ny, 0.0f}});
+		}
+		for (uint32_t i = 0; i < segments; ++i) {
+			const uint32_t a = center + 1 + i, b = center + 1 + (i + 1) % segments;
+			mesh.indices.insert(mesh.indices.end(), {center, a, b});
 		}
 	}
 
-	const uint32_t top_center = 2 * segments;
-	const uint32_t bottom_center = 2 * segments + 1;
-	mesh.vertices.push_back(makeVertex(0.0f, +half, 0.0f));
-	mesh.vertices.push_back(makeVertex(0.0f, -half, 0.0f));
+	return mesh;
+}
 
-	for (uint32_t i = 0; i < segments; ++i) {
-		const uint32_t j = (i + 1) % segments;
-		const uint32_t top_i = i, top_j = j;
-		const uint32_t bottom_i = segments + i, bottom_j = segments + j;
-
-		// Боковая стенка: два треугольника на сегмент.
-		mesh.indices.insert(mesh.indices.end(), {top_i, bottom_i, top_j});
-		mesh.indices.insert(mesh.indices.end(), {top_j, bottom_i, bottom_j});
-
-		// Основания: треугольник от центра к двум соседним вершинам окружности.
-		mesh.indices.insert(mesh.indices.end(), {top_center, top_j, top_i});
-		mesh.indices.insert(mesh.indices.end(), {bottom_center, bottom_i, bottom_j});
+// Единичный куб [-0.5, 0.5]^3 с нормалями граней (для маркеров источников света).
+inline Mesh makeCube() {
+	Mesh mesh;
+	const float f[6][9] = {  // нормаль, касательная u, касательная v
+		{ 1, 0, 0,  0, 1, 0,  0, 0, 1}, {-1, 0, 0,  0, 1, 0,  0, 0, 1},
+		{ 0, 1, 0,  1, 0, 0,  0, 0, 1}, { 0,-1, 0,  1, 0, 0,  0, 0, 1},
+		{ 0, 0, 1,  1, 0, 0,  0, 1, 0}, { 0, 0,-1,  1, 0, 0,  0, 1, 0},
+	};
+	const float su[4] = {-1, 1, 1, -1}, sv[4] = {-1, -1, 1, 1};
+	for (const auto& d : f) {
+		const uint32_t base = uint32_t(mesh.vertices.size());
+		for (int k = 0; k < 4; ++k) {
+			Vertex v{};
+			for (int j = 0; j < 3; ++j) {
+				v.position[j] = 0.5f * (d[j] + su[k] * d[3 + j] + sv[k] * d[6 + j]);
+				v.normal[j] = d[j];
+			}
+			mesh.vertices.push_back(v);
+		}
+		mesh.indices.insert(mesh.indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
 	}
+	return mesh;
+}
 
+// Каркас конуса (линии): вершина в начале координат, основание радиуса 1 на z = -1.
+// Масштабируется и поворачивается матрицей модели. Топология - LINE_LIST.
+inline Mesh makeConeLines(uint32_t segments = 32) {
+	Mesh mesh;
+	const float step = 2.0f * std::numbers::pi_v<float> / float(segments);
+	mesh.vertices.push_back({{0, 0, 0}, {0, 0, 1}});
+	for (uint32_t i = 0; i < segments; ++i) {
+		mesh.vertices.push_back({{std::cos(step * float(i)), std::sin(step * float(i)), -1.0f}, {0, 0, 1}});
+	}
+	for (uint32_t i = 0; i < segments; ++i) {
+		mesh.indices.insert(mesh.indices.end(), {1 + i, 1 + (i + 1) % segments});
+		if (i % (segments / 4) == 0) {
+			mesh.indices.insert(mesh.indices.end(), {0, 1 + i});
+		}
+	}
 	return mesh;
 }
 

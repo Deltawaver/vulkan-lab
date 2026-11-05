@@ -393,6 +393,10 @@ bool initialize(GLFWwindow* const window) {
 				 .request_validation_layers()
 				 .build();
 
+	if (!ibr) {
+		std::cerr << ibr.error().message() << '\n';
+		return false;
+	}
 	auto vkb_instance = ibr.value();
 	vk_instance = vkb_instance.instance;
 	vk_api_version = vkb_instance.api_version;
