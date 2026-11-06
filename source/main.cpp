@@ -84,6 +84,7 @@ int main() {
 
 		graphics::internal::FrameData fd = graphics::internal::prepare();
 		application::render(fd);
+		if (fd.command_buffer == VK_NULL_HANDLE) break;
 		graphics::internal::submitAndPresent();
 	}
 
@@ -99,5 +100,5 @@ err_imgui_init:
 err_null_window:
 	glfwTerminate();
 
-	return 0;
+	return status;
 }

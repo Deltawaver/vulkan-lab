@@ -64,3 +64,9 @@ because relative paths are used.
 `CMakeLists.txt` has a build recipe for compiling shader files
 along with an application. Look for a comment in this file to see
 how to compile your shaders.
+
+## Lab 3: Texture mapping
+
+Run the executable with the repository root as the working directory. The bitmap files in `textures/` are loaded at startup through `stb_image`. `Brass`, `Tiles`, and `Plasma` can be selected per object in the Scene panel. `Animated texture sampling` enables a time-dependent second sample and color modulation for that object; it is enabled for the center cylinder by default.
+
+Each material binds an albedo, specular, and emissive image. Missing specular or emissive maps use a shared black one-pixel texture. Cylinder, cube, and cone vertices include UV coordinates. Vertex and index buffers are copied from staging buffers into device-local memory. Model properties remain in one dynamic uniform buffer; sampling controls are passed as push constants.

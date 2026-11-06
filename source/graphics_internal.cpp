@@ -257,6 +257,7 @@ bool rebuildSwapchain(uint32_t width, uint32_t height) {
 					   .build();
 	if (!sb_result) {
 		std::cerr << sb_result.error().message() << '\n';
+		return false;
 	}
 
 	auto vkb_swapchain = sb_result.value();
@@ -734,7 +735,8 @@ retry_acquire:
 		break;
 
 	case VK_ERROR_OUT_OF_DATE_KHR:
-		rebuildSwapchain(vk_swapchain_resize_width, vk_swapchain_resize_height);
+		if (!rebuildSwapchain(vk_swapchain_resize_width ? vk_swapchain_resize_width : context.swapchain_extent.width,
+		                      vk_swapchain_resize_height ? vk_swapchain_resize_height : context.swapchain_extent.height)) return {};
 		goto retry_acquire;
 
 	case VK_SUBOPTIMAL_KHR:
@@ -789,8 +791,11 @@ void submitAndPresent() {
 	if (result == VK_ERROR_OUT_OF_DATE_KHR ||
 	    result == VK_SUBOPTIMAL_KHR ||
 	    vk_swapchain_resize_require) {
-		rebuildSwapchain(vk_swapchain_resize_width, vk_swapchain_resize_height);
-	} else {
+		if (!rebuildSwapchain(vk_swapchain_resize_width ? vk_swapchain_resize_width : context.swapchain_extent.width,
+		                      vk_swapchain_resize_height ? vk_swapchain_resize_height : context.swapchain_extent.height)) {
+			std::cerr << "Failed to rebuild Vulkan swapchain\n";
+		}
+	} else if (result != VK_SUCCESS) {
 		std::cerr << "Failed to present Vulkan swapchain image\n";
 	}
 }

@@ -2,8 +2,20 @@
 
 layout(location = 0) in vec3 in_world_pos;
 layout(location = 1) in vec3 in_world_normal;
+layout(location = 2) in vec2 in_uv;
 
 layout(location = 0) out vec4 out_color;
+
+layout(set = 1, binding = 1) uniform sampler2D albedo_map;
+layout(set = 1, binding = 2) uniform sampler2D specular_map;
+layout(set = 1, binding = 3) uniform sampler2D emissive_map;
+layout(push_constant) uniform Effects {
+	float time;
+	int special;
+	int unlit;
+} effects;
+vec3 surface_albedo;
+vec3 surface_specular;
 
 layout(set = 0, binding = 0) uniform Scene {
 	mat4 view_proj;
@@ -41,19 +53,28 @@ vec3 blinnPhong(vec3 L, vec3 radiance, vec3 N, vec3 V) {
 	const float ndl = max(dot(N, L), 0.0);
 	const vec3 H = normalize(L + V);
 	const float spec = ndl > 0.0 ? pow(max(dot(N, H), 0.0), model.specular.a) : 0.0;
-	return (model.albedo.rgb * ndl + model.specular.rgb * spec) * radiance;
+	return (surface_albedo * ndl + surface_specular * spec) * radiance;
 }
 
 void main() {
-	if (model.flags.x > 0.5) {
-		out_color = vec4(model.albedo.rgb, 1.0);
+	vec2 uv = in_uv;
+	vec3 texel = texture(albedo_map, uv).rgb;
+	if (effects.special != 0) {
+		vec2 drift = vec2(effects.time * 0.08, 0.04 * sin(effects.time));
+		vec3 second = texture(albedo_map, uv * 2.0 + drift).rgb;
+		texel = mix(texel, second, 0.35) * (0.8 + 0.2 * sin(effects.time * 2.0 + in_world_pos.y * 4.0));
+	}
+	surface_albedo = model.albedo.rgb * texel;
+	surface_specular = model.specular.rgb * texture(specular_map, uv).rgb;
+	if (effects.unlit != 0) {
+		out_color = vec4(surface_albedo, 1.0);
 		return;
 	}
 
 	const vec3 N = normalize(in_world_normal);
 	const vec3 V = normalize(scene.camera_pos.xyz - in_world_pos);
 
-	vec3 color = scene.ambient.rgb * model.albedo.rgb;
+	vec3 color = scene.ambient.rgb * surface_albedo;
 
 	// Направленный источник.
 	color += blinnPhong(normalize(-scene.dir_direction.xyz), scene.dir_color.rgb, N, V);
@@ -80,5 +101,5 @@ void main() {
 		color += blinnPhong(L, spot_lights[i].color.rgb * (t / d2), N, V);
 	}
 
-	out_color = vec4(color, 1.0);
+	out_color = vec4(color + texture(emissive_map, uv).rgb, 1.0);
 }
