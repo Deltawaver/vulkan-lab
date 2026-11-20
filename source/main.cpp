@@ -76,6 +76,13 @@ int main() {
 		const double time = glfwGetTime();
 
 		glfwPollEvents();
+		int width, height;
+		glfwGetFramebufferSize(glfw_window, &width, &height);
+		if (width == 0 || height == 0) {
+			glfwWaitEvents();
+			continue;
+		}
+		if (glfwWindowShouldClose(glfw_window)) break;
 		ImGui_ImplGlfw_NewFrame();
 
 		ImGui::NewFrame();

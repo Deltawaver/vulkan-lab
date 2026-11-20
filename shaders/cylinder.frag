@@ -4,6 +4,8 @@ layout(location = 0) in vec3 in_world_pos;
 layout(location = 1) in vec3 in_world_normal;
 layout(location = 2) in vec2 in_uv;
 
+layout(location = 3) flat in float in_cap;
+
 layout(location = 0) out vec4 out_color;
 
 layout(set = 1, binding = 1) uniform sampler2D albedo_map;
@@ -24,7 +26,27 @@ layout(set = 0, binding = 0) uniform Scene {
 	vec4 dir_direction;
 	vec4 dir_color;
 	ivec4 counts;
+	mat4 light_view_proj[2];
 } scene;
+
+layout(set = 0, binding = 3) uniform sampler2DShadow shadow_maps[2];
+
+float shadowVisibility(sampler2DShadow map, mat4 light_view_proj) {
+	vec4 clip = light_view_proj * vec4(in_world_pos, 1.0);
+	if (clip.w <= 0.0) return 1.0;
+	vec3 ndc = clip.xyz / clip.w;
+	if (ndc.z < 0.0 || ndc.z >= 1.0 || any(greaterThan(abs(ndc.xy), vec2(1.0)))) return 1.0;
+
+	vec2 uv = ndc.xy * 0.5 + 0.5;
+	vec2 texel = 1.0 / vec2(textureSize(map, 0));
+	float visibility = 0.0;
+	for (int y = -1; y <= 1; ++y) {
+		for (int x = -1; x <= 1; ++x) {
+			visibility += texture(map, vec3(uv + vec2(x, y) * texel, ndc.z));
+		}
+	}
+	return visibility / 9.0;
+}
 
 struct PointLight {
 	vec4 position;
@@ -58,10 +80,20 @@ vec3 blinnPhong(vec3 L, vec3 radiance, vec3 N, vec3 V) {
 
 void main() {
 	vec2 uv = in_uv;
+	const bool casing = model.flags.y > 0.5;
+	if (casing) {
+		if (abs(in_cap) < 0.999) {
+			uv.y = mix(0.01, 0.49, uv.y);
+		} else {
+			uv.y = mix(in_cap > 0.0 ? 0.51 : 0.76,
+			           in_cap > 0.0 ? 0.74 : 0.99, uv.y);
+		}
+	}
 	vec3 texel = texture(albedo_map, uv).rgb;
 	if (effects.special != 0) {
 		vec2 drift = vec2(effects.time * 0.08, 0.04 * sin(effects.time));
-		vec3 second = texture(albedo_map, uv * 2.0 + drift).rgb;
+		vec2 animated_uv = casing ? vec2(uv.x * 2.0 + drift.x, uv.y) : uv * 2.0 + drift;
+		vec3 second = texture(albedo_map, animated_uv).rgb;
 		texel = mix(texel, second, 0.35) * (0.8 + 0.2 * sin(effects.time * 2.0 + in_world_pos.y * 4.0));
 	}
 	surface_albedo = model.albedo.rgb * texel;
@@ -77,7 +109,8 @@ void main() {
 	vec3 color = scene.ambient.rgb * surface_albedo;
 
 	// Направленный источник.
-	color += blinnPhong(normalize(-scene.dir_direction.xyz), scene.dir_color.rgb, N, V);
+	color += shadowVisibility(shadow_maps[0], scene.light_view_proj[0]) *
+	         blinnPhong(normalize(-scene.dir_direction.xyz), scene.dir_color.rgb, N, V);
 
 	// Точечные источники: затухание 1 / d^2.
 	for (int i = 0; i < scene.counts.x; ++i) {
@@ -98,7 +131,8 @@ void main() {
 		float t = clamp((cos_theta - cos_outer) / max(cos_inner - cos_outer, 1e-4), 0.0, 1.0);
 		t = t * t * (3.0 - 2.0 * t);
 
-		color += blinnPhong(L, spot_lights[i].color.rgb * (t / d2), N, V);
+		const float visibility = i == 0 && t > 0.0 ? shadowVisibility(shadow_maps[1], scene.light_view_proj[1]) : 1.0;
+		color += blinnPhong(L, spot_lights[i].color.rgb * (visibility * t / d2), N, V);
 	}
 
 	out_color = vec4(color + texture(emissive_map, uv).rgb, 1.0);

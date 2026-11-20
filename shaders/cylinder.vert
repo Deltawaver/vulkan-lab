@@ -12,6 +12,7 @@ layout(set = 0, binding = 0) uniform Scene {
 	vec4 dir_direction; 
 	vec4 dir_color;      // цвет * интенсивность
 	ivec4 counts;        // x - точечных, y - прожекторных
+	mat4 light_view_proj[2];
 } scene;
 
 // Набор дескрипторов 1: модель (динамический uniform-буфер).
@@ -26,10 +27,13 @@ layout(location = 0) out vec3 out_world_pos;
 layout(location = 1) out vec3 out_world_normal;
 layout(location = 2) out vec2 out_uv;
 
+layout(location = 3) flat out float out_cap;
+
 void main() {
 	const vec4 world = model.model * vec4(in_position, 1.0);
 	gl_Position = scene.view_proj * world;
 	out_world_pos = world.xyz;
 	out_world_normal = transpose(inverse(mat3(model.model))) * in_normal;
 	out_uv = in_uv;
+	out_cap = in_normal.y;
 }
